@@ -10,6 +10,7 @@ Archive of bioinformatics learning material and website summary
 学习课件以及相关资料书籍，有的电子书籍可能会涉及侵权行为，不放GitHub上，这里将只列出名字和介绍链接。
 
 - [生物大数据](http://www.icourse163.org/learn/FAFU-1001766004) - 福建农林大学《大数据时代的生物信息学》慕课课程，相关资料在`BioBigData`目录下。
+- 华大基因HiSeq培训 - 下载自[百度文库](https://wenku.baidu.com/view/1d1cc40b844769eae009edd2.html)，位于`Documents`目录下。
 
 
 
