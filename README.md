@@ -11,6 +11,8 @@ Archive of bioinformatics learning material and website summary
 
 - [生物大数据](http://www.icourse163.org/learn/FAFU-1001766004) - 福建农林大学《大数据时代的生物信息学》慕课课程，相关资料在`BioBigData`目录下。
 - 华大基因HiSeq培训 - 下载自[百度文库](https://wenku.baidu.com/view/1d1cc40b844769eae009edd2.html)，位于`Documents`目录下。
+- 生信入门资料 - 分享自生信技能树公众号，已转至诗翔的百度云，链接: https://pan.baidu.com/s/1mhHd8aG 密码: vjxa
+- ​
 
 
 
