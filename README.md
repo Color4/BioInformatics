@@ -12,7 +12,11 @@ Archive of bioinformatics learning material and website summary
 - [生物大数据](http://www.icourse163.org/learn/FAFU-1001766004) - 福建农林大学《大数据时代的生物信息学》慕课课程，相关资料在`BioBigData`目录下。
 - 华大基因HiSeq培训 - 下载自[百度文库](https://wenku.baidu.com/view/1d1cc40b844769eae009edd2.html)，位于`Documents`目录下。
 - 生信入门资料 - 分享自生信技能树公众号，已转至诗翔的百度云，链接: https://pan.baidu.com/s/1mhHd8aG 密码: vjxa
-- ​
+- Github入门与实战（中文版） - 链接: https://pan.baidu.com/s/1nvgJWIP 密码: ne2w
+- RNA-seq Data Analysis-A Practical Approach - 链接: https://pan.baidu.com/s/1eSPD4hs 密码: y79f
+- Python for Data Analysis(2nd Edition, Early Release) - 链接: https://pan.baidu.com/s/1c1UleXq 密码: s692
+- 小张聊科研修炼手册 - 链接: https://pan.baidu.com/s/1jIiRXhO 密码: zu4n
+- MySQL视频（尚观云） - 链接: https://pan.baidu.com/s/1pLJV7b9 密码: e6fg
 
 
 
