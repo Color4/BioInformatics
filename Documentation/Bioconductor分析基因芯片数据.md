@@ -1,6 +1,6 @@
 # Bioconductor分析基因芯片数据
 
-*参考学习《R语言与Bioconductor——生物信息学应用》第五章*，版权为原作者所有，欢迎分享。
+*参考学习《R语言与Bioconductor——生物信息学应用》第五章*，根据自己学习有删改，版权为原作者所有，欢迎分享。本文中有些预备知识或一些方法的原理没有提及，请自行搜索理解或者购买该书学习。
 
 **Bioconductor最初就是设计来分析基因芯片数据的，因此芯片分析整体反映了Biocondutor的设计理念和编程思想。**
 
@@ -533,15 +533,153 @@ boxplot(CLLgcrma, col=colors, las=3, main="gcRMA")
 
 ## 基因芯片数据分析
 
+通过以下几个实例，掌握Bioconductor处理芯片数据的完整过程。
+
 
 
 ### 选取差异表达基因
+
+这是非常关键也是为人所熟知的一步，即使没有数据分析背景的生物学方向学生也必然不会对此陌生。而生物实验往往想要找的就是差异表达基因。
+
+总的来说，这类分析的**基本假设是标准化的芯片数据符合正态分布**（想想为什么正式分析数据前要做那么多步骤处理？），所用的统计方法基本上就是T/F检验和方差分析以及它们的改进方法。
+
+这里不再详细介绍各类方法，现在经验贝叶斯是当前最常用的分析方法，它已经完整地由Bioconductor中的limma包实现。limma包是基于R和Bioconductor平台分析芯片数据的综合软件包，该包功能齐全、教程完善、使用率极高，几乎成了芯片数据处理流程的代名词（说明分析用它准没错了）。
+
+
+
+下面是应用该包计算CLL数据集中差异表达基因的流程。
+
+```R
+####
+#### DEG analysis
+
+#　如果没有安装limma包，请取消下面两行注释
+# library(BiocInstaller)
+# biocLite("limma")
+
+# 导入包
+library(limma)
+library(gcrma)
+library(CLL)
+
+# 导入CLL数据
+data("CLLbatch")
+data(disease)
+
+# 移除 CLL1, CLL10, CLL13
+CLLbatch <- CLLbatch[, -match(c("CLL10.CEL", "CLL1.CEL", "CLL13.CEL"),
+                              sampleNames(CLLbatch))]
+# 用gcRMA算法进行预处理
+CLLgcrma <- gcrma(CLLbatch)
+
+# remove .CEL in sample names
+sampleNames(CLLgcrma) <- gsub(".CEL$", "", sampleNames(CLLgcrma))
+# remove record in data disease about CLL1, 10 and 13.CEL
+disease <- disease[match(sampleNames(CLLgcrma), disease[, "SampleID"]), ]
+
+# 获得余下21个样品的基因表达矩阵
+eset <- exprs(CLLgcrma)
+
+# 提取实验条件信息
+disease <- factor(disease[, "Disease"])
+
+# 构建实验设计矩阵
+design <- model.matrix(~-1+disease)
+# 构建对比模型，比较两个实验条件下表达数据
+#　这里的.是简写而不是运算符号
+contrast.matrix <- makeContrasts(contrasts = "diseaseprogres. - diseasestable",
+                                 levels=design)
+
+# 线性模型拟合
+fit <- lmFit(eset, design)
+# 根据对比模型进行差值计算 
+fit1 <- contrasts.fit(fit, contrast.matrix)
+# 贝叶斯检验
+fit2 <- eBayes(fit1)
+
+# 生成所有基因的检验结果报告
+dif <- topTable(fit2, coef="diseaseprogres. - diseasestable", n=nrow(fit2), lfc=log2(1.5))
+# 用P.Value进行筛选，得到全部差异表达基因
+dif <- dif[dif[, "P.Value"]<0.01,]
+# 显示一部分报告结果
+head(dif)
+```
+
+
+
+```R
+> head(dif)
+              logFC  AveExpr         t      P.Value adj.P.Val         B
+39400_at -0.9997850 5.634004 -5.727329 1.482860e-05 0.1034544 2.4458354
+1303_at  -1.3430306 4.540225 -5.596813 1.974284e-05 0.1034544 2.1546350
+33791_at  1.9647962 6.837903  5.400499 3.047498e-05 0.1034544 1.7135583
+36131_at  0.9574214 9.945334  5.367741 3.277762e-05 0.1034544 1.6396223
+37636_at  2.0534093 5.478683  5.120519 5.699454e-05 0.1439112 1.0788313
+36122_at  0.8008604 7.146293  4.776721 1.241402e-04 0.2612118 0.2922106
+```
+
+
+
+下面逐次介绍这个分析过程的**六个**关键步骤：**构建基因表达矩阵、构建实验设计矩阵、构建对比模型（对比矩阵）、线性模型拟合、贝叶斯检验和生成结果报表**。
+
+构建基因表达矩阵时，需要注意limma包对输入数据要求是必须经过对数转换的表达值。如果使用的预处理算法没有该处理过程，我们需要自行编写代码处理。
+
+实验设计矩阵需要调用model.matrix函数构建，该函数需要用户指定一个公式，构建好的实验设计矩阵design要提供给下一步的拟合函数lmFit。
+
+```R
+> design
+   diseaseprogres. diseasestable
+1                1             0
+2                0             1
+3                1             0
+4                1             0
+5                1             0
+6                0             1
+7                0             1
+8                1             0
+9                0             1
+10               1             0
+11               0             1
+12               1             0
+13               0             1
+14               0             1
+15               1             0
+16               1             0
+17               1             0
+18               1             0
+19               1             0
+20               1             0
+21               0             1
+attr(,"assign")
+[1] 1 1
+attr(,"contrasts")
+attr(,"contrasts")$disease
+[1] "contr.treatment"
+```
+
+实验设计矩阵的每一行对应一个样品的编码，每一列对应样品的一个特征。这里只考虑了一个因素两个水平，如果是多因素和多水平的实验设计，会产生更多的特征，需要参考文档设计。
+
+比较模型需要调用makeContrasts函数构建，该函数需要用户指定一个公式，这个公式表明用户要求对实验矩阵design中的哪一列特征和哪一列特征进行比较，以得到差异。
+
+接下来是根据实验设计矩阵调用函数对基因表达矩阵做线性拟合`lmFit(eset, design)`，根据对比模型进行差值计算，最后是贝叶斯检验。
+
+topTable函数的使用需要注意几点：
+
+1. topTable提供了多种方法可以做基因筛选，本例就通过对数化的变化倍数“lfc”去掉了一些在两组条件下变化不大的基因，但是这样做的理由不够充分，因为变化倍数不大的不一定就是没有显著变化。
+2. topTable还提供了参数可以对基因进行排序。
+3. 显著性基因的选取具有一定主观性，阈值设定是0.01还是0.05没有严格标准。
+
+
+
+此处分析步骤，还可以参考[【R高级教程】专题二：差异表达基因的分析](http://blog.sciencenet.cn/blog-295006-403640.html)理解学习和实践。
 
 
 
 ### 注释
 
+找到差异表达基因之后，接下来是使用注释包对其进行注释（因为我们现在找到的是探针组）。
 
+对Affymetrix芯片进行注释采用下载对应平台注释包进行本地注释的方式。下面例子只用两种基因ID来对探针组进行注释。
 
 ### 统计分析及可视化
 
