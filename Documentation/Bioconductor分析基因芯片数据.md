@@ -1,6 +1,6 @@
 # Bioconductor分析基因芯片数据
 
-*参考学习《R语言与Bioconductor——生物信息学应用》第五章*
+*参考学习《R语言与Bioconductor——生物信息学应用》第五章*，版权为原作者所有，欢迎分享。
 
 **Bioconductor最初就是设计来分析基因芯片数据的，因此芯片分析整体反映了Biocondutor的设计理念和编程思想。**
 
@@ -282,7 +282,7 @@ CLLbatch <- CLLbatch[, -match(c("CLL10.CEL", "CLL1.CEL", "CLL13.CEL"),
 
 去掉三个质量差的。
 
-前面提到的质量控制方法都是基于平均值思想的，其实，我们还可以从芯片之间的相互关系来检验芯片的质量。理论上组内同种类型的芯片数据应该聚拢在一起，两个组之间应该明显地分离。Pearson线性相关系数就是最常用的这类指标，但在实际应用中，往往不是直接查看相关系数矩阵，而是根据由相关系数矩阵导出的距离矩阵，进行聚类分析或主成分分析以对样品归类并图形化显示。
+前面提到的质量控制方法都是**基于平均值思想**的，其实，我们还可以从芯片之间的相互关系来检验芯片的质量。理论上组内同种类型的芯片数据应该聚拢在一起，两个组之间应该明显地分离。Pearson线性相关系数就是最常用的这类指标，但在实际应用中，往往不是直接查看相关系数矩阵，而是根据由相关系数矩阵导出的**距离矩阵**，进行聚类分析或主成分分析以对样品归类并图形化显示。
 
 ```R
 ## cluster and PCA
@@ -330,6 +330,204 @@ plotPCA(eset, addtext=samplenames, groups=groups, groupnames=levels(groups))
 
 
 ### 背景校正、标准化和汇总
+
+芯片数据通过**质量控制**，剔除不合格的样品，留下的数据经过**背景校正、标准化和汇总**三步得到下一步分析用的基因表达矩阵。
+
+实际中经常发现大量的MM（Mismatch）信号比PM（Perfect Match）信号还要高。我们需要应用复杂的统计模型来去除背景噪声，这叫作背景校正（Background correction）。
+
+**标准化的目的**是消除测量间的非实验误差，使得实验条件下的测量可以相互比较。芯片数据标准化根据基本假设分为“bulk normalization"与"control-based normalization"两种。前者假定仅有一小部分基因表达值在不同条件下有差异，因此使用所有的基因表达值作为参考进行标准化；后者使用表达值被认为恒定不变的参考基因作为标准进行标准化。实际应用中一般只采用第一种。
+
+最后，我们使用一定的统计方法**将前面得到的荧光强度值从探针水平汇总到探侦组水平**，这个过程被称为汇总（Summarization）。
+
+上述三个步骤可以由affy包的expresso函数实现，我们可以设定不同的参数来指定具体采用的方法。
+
+```R
+# 在前面分析的基础上
+eset.mas <- expresso(CLLbatch, bgcorrect.method = "mas", normalize.method = "constant", pmcorrect.method = "mas",
+                     summary.method = "mas")
+```
+
+可以看到函数的调用非常简单，但参数很多，理解比较复杂。想要了解所有参数的含义，使用`help(expresso)`命令获取参数说明。
+
+下面命令可以查看可选的参数：
+
+```R
+> bgcorrect.methods()
+[1] "bg.correct" "mas"        "none"       "rma"       
+> normalize.methods(CLLbatch)
+ [1] "constant"           "contrasts"          "invariantset"       "loess"              "methods"            "qspline"           
+ [7] "quantiles"          "quantiles.robust"   "quantiles.probeset" "scaling"           
+> pmcorrect.methods()
+[1] "mas"        "methods"    "pmonly"     "subtractmm"
+> express.summary.stat.methods()
+[1] "avgdiff"      "liwong"       "mas"          "medianpolish" "playerout"  
+```
+
+
+
+| 参数               | 说明                    |
+| ---------------- | --------------------- |
+| afbatch          | 输入数据的类型必须是AffyBatch对象 |
+| bgcorrect.method | 背景校正方法                |
+| bgcorrect.param  | 指定背景校正方法的参数           |
+| normalize.method | 标准化方法                 |
+| normalize.param  | 指定标准化方法的参数            |
+| pmcorrect.method | PM调整方法                |
+| pmcorrect.param  | 指定PM方法参数              |
+| summary.method   | 汇总方法                  |
+| summary.param    | 指定汇总方法的参数             |
+
+
+
+~~八种~~十种标准方法，又可以分为芯片间标准方法和芯片内标准化方法。**芯片间标准化方法针对单通道芯片数据**，常用的有三种：**线性缩放（constant）、不变集（invariantset）和分位数方法（quantiles）**。**芯片间标准方法**的核心思想就是确定一个参考芯片（可以是假想的），假定芯片之间的某种不变量，对其他芯片数据进行整体的拉伸或者压缩变换。**线性缩放**方法，以其他芯片和参考芯片（默认为第一个）所有基因表达值均值的比值为因子，对其他芯片的表达值做等比例缩放。这个方法非常简单，是MAS5预处理算法默认使用的标准化方法。MAS5预处理算法不指定任何芯片，而是设定了一个假想的芯片均值作为参考，这样每个芯片都可以单独计算，有新的数据加入时也可以不必重新计算已经标准化的数据。**分位数**方法是RMA预处理算法默认使用的标准化方法（关于方法的使用应该根据数据合理选择，网上搜索方法使用的具体详情，这里书里没有进行过多的阐述）。
+
+下面用MAS方法进行背景校正和标准化：
+
+```R
+# 使用mas方法做背景校正
+> CLLmas5 <- bg.correct(CLLbatch, method = "mas")
+# 使用constant方法标准化
+> data_mas5 <- normalize(CLLmas5, method="constant")
+#　查看每个样品的缩放系数
+> head(pm(data_mas5)/pm(CLLmas5), 5)
+       CLL11.CEL CLL12.CEL CLL14.CEL CLL15.CEL CLL16.CEL CLL17.CEL CLL18.CEL CLL19.CEL CLL20.CEL CLL21.CEL CLL22.CEL CLL23.CEL
+175218         1  1.155849  1.023873  1.493193  1.549369  2.000299  1.451576  1.776501 0.9825108 0.7070828 0.9958733  1.432365
+356689         1  1.155849  1.023873  1.493193  1.549369  2.000299  1.451576  1.776501 0.9825108 0.7070828 0.9958733  1.432365
+227696         1  1.155849  1.023873  1.493193  1.549369  2.000299  1.451576  1.776501 0.9825108 0.7070828 0.9958733  1.432365
+237919         1  1.155849  1.023873  1.493193  1.549369  2.000299  1.451576  1.776501 0.9825108 0.7070828 0.9958733  1.432365
+275173         1  1.155849  1.023873  1.493193  1.549369  2.000299  1.451576  1.776501 0.9825108 0.7070828 0.9958733  1.432365
+       CLL24.CEL CLL2.CEL  CLL3.CEL  CLL4.CEL  CLL5.CEL CLL6.CEL CLL7.CEL CLL8.CEL  CLL9.CEL
+175218  1.706026 1.156378 0.8425419 0.9775082 0.9816573 1.182963 1.114976  1.13639 0.8939248
+356689  1.706026 1.156378 0.8425419 0.9775082 0.9816573 1.182963 1.114976  1.13639 0.8939248
+227696  1.706026 1.156378 0.8425419 0.9775082 0.9816573 1.182963 1.114976  1.13639 0.8939248
+237919  1.706026 1.156378 0.8425419 0.9775082 0.9816573 1.182963 1.114976  1.13639 0.8939248
+275173  1.706026 1.156378 0.8425419 0.9775082 0.9816573 1.182963 1.114976  1.13639 0.8939248
+# 查看第二个样品的缩放系数是怎么计算来的
+> mean(intensity(CLLmas5)[,1])/mean(intensity(CLLmas5)[,2])
+[1] 1.155849
+```
+
+
+
+芯片内标准化方法针对**双通道芯片**数据，又可以分为**全局化方法**（Global normalization）和**荧光强度依赖的方法**（Intensity-dependent normalization）。
+
+全局化方法假设红色染料的信号强度与绿色染料的信号强度是正比例关系的，即R=kG（R：红色信号强度；G：绿色信号强度）。
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Pre-normalization.MAplot.png/450px-Pre-normalization.MAplot.png)
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Post-normalization.MAplot.png/450px-Post-normalization.MAplot.png)
+
+
+
+[MA（M代表Minus，A代表Average）图](https://en.wikipedia.org/wiki/MA_plot)全称为：The distribution of the red/green intensity ratio plotted by the average intensity。定义$M=log_2(R/G)，A=1/2*log_2(R*G)$。此处R和G已经不再特指双通道cDNA芯片中红和绿标记的样品表达量，可以表示任何两个需要对比的数据。**单通道数据中MA图反应了基因在对比的样品中表达差异（对数化的）随基因信号强度（对数化的）变化的分布**。
+
+当数据符合全局化方法的假设，**数据标准化后的MA图大多数基因的差异表达值（M值）应该对称分布在水平的中心线（M=0）附近**。若此方法不成立，只能**采用荧光强度依赖的方法，将M调整为以0为中心的分布**，这类方法最常用的是Loess方法。简单来说就是对不同的A值的基因进行局部加权回归，得到一条蓝色的直线。不过现在已经很少有人用双通道cDNA芯片了。
+
+
+
+### 预处理的一体化算法
+
+除了expresso函数，affyPLM软件包提供了threestep函数可以更快地实现同样的功能。如果我们自己自行组合参数，实际上使用可能会很低效，甚至有些组合不能使用。因此实际中，应用较多的预设参数的一体化算法，我们可以完全不管细节，直接使用从而简化处理和分析过程。
+
+**预处理方法**
+
+|  方法   | 背景校正方法 |    标准化方法     |     汇总方法     |
+| :---: | :----: | :----------: | :----------: |
+| MASS  |  mas   |   constant   |     mas      |
+| dChip |  mas   | invariantset |    liwong    |
+|  RMA  |  rma   |   quantile   | medianpolish |
+
+常见的预处理算法一般都已经按照同名函数包装好以供调用，如affy包的MAS5和RMA，gcrma包的gcRMA（基于RMA算法）等。
+
+实际工作中，MAS5和RMA算法使用较多。下面对差异做一个比较：
+
+- MAS5 每个芯片可以单独进行标准化；RMA 采用多芯片模型，需要对所有芯片一起进行标准化。
+- MAS5 利用MM探针的信息去除背景噪声，基本思路是MP-MM；RMA 不使用MM信息，而是基于PM信号分布采用的随机模型来估计表达值。
+- **RMA处理后的数据是经过2为底的对数转换的，而MAS5不是，这一点非常重要，因为大多数芯片分析软件和函数的输入数据必须经过对数变换。**
+
+
+
+下面我们来比较不同算法的处理效果。
+
+```R
+library(affy)
+library(gcrma)
+library(affyPLM)
+library(RColorBrewer)
+library(CLL)
+
+data("CLLbatch")
+colors <- brewer.pal(12, "Set3")
+# use MAS5
+CLLmas5 <- mas5(CLLbatch)
+# use rma 
+CLLrma <- rma(CLLbatch)
+# use gcrma
+CLLgcrma <- gcrma(CLLbatch)
+
+## hist plot
+hist(CLLbatch, main="orignal", col=colors)
+legend("topright", rownames(pData(CLLbatch)), col=colors,
+       lwd=1, inset=0.05, cex=0.5, ncol=3)
+hist(CLLmas5, main="MAS 5.0", xlim=c(-150,2^10), col=colors)
+hist(CLLrma, main="RMA", col=colors)
+hist(CLLgcrma, main="gcRMA", col=colors)
+## boxplot
+boxplot(CLLbatch, col=colors, las=3, main="original")
+boxplot(CLLmas5, col=colors, las=3, ylim=c(0,1000), main="MAS 5.0")
+boxplot(CLLrma, col=colors, las=3, main="RMA")
+boxplot(CLLgcrma, col=colors, las=3, main="gcRMA")
+```
+
+
+
+先看信号强度分布图
+
+![](images/intensity_original.png)
+
+![](images/intensity_mas5.png)
+
+
+
+![](images/intensity_rma.png)
+
+
+
+![](images/intensity_gcrma.png)
+
+这里简要说明：RMA算法将多条曲线重合到了一起，有利于进一步的差异分析，但却出现了双峰现象，不符合高斯正态分布。很显然gcRMA算法在这里表现的更好。当然，这不意味着gcRMA算法总是优越于RMA算法。
+
+下面看箱线图结果：
+
+![](images/boxplot_original.png)
+
+
+
+![](images/boxplot_mas.png)
+
+
+
+![](images/boxplot_rma.png)
+
+
+
+![](images/boxplot_gcrma.png)
+
+
+
+三个算法处理后的各样品的中值都十分接近。MAS5算法总体而言还不错，有一定拖尾现象；而gcRMA的拖尾现象比RMA要明显得多。**这说明针对低表达量的基因，RMA算法比gcRMA算法表现更好一些。**
+
+最后我们可以通过MA图来查看标准化处理的效果。
+
+![](images/orignal_ma_plot.png)
+
+
+
+![](images/gcrma_ma_plot.png)
+
+
+
+原始数据中，中值（红线）偏离0，经过gcRMA处理后，中值基本保持在零线上。
 
 
 
