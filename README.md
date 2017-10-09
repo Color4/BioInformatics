@@ -17,6 +17,8 @@ Archive of bioinformatics learning material and website summary
 - Python for Data Analysis(2nd Edition, Early Release) - 链接: https://pan.baidu.com/s/1c1UleXq 密码: s692
 - 小张聊科研修炼手册 - 链接: https://pan.baidu.com/s/1jIiRXhO 密码: zu4n
 - MySQL视频（尚观云） - 链接: https://pan.baidu.com/s/1pLJV7b9 密码: e6fg
+- NIH的TCGA-topic大全 - 链接: https://pan.baidu.com/s/1i4CzYoH 密码: w9q4
+- TCGA大文章 - 链接: https://pan.baidu.com/s/1qXY6wI4 密码: de2q
 
 
 
