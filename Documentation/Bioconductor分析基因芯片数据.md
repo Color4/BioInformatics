@@ -1,6 +1,6 @@
 # Bioconductor分析基因芯片数据
 
-*参考学习《R语言与Bioconductor——生物信息学应用》第五章*，根据自己学习有删改，版权为原作者所有，欢迎分享。本文中有些预备知识或一些方法的原理没有提及，请自行搜索理解或者购买该书学习。
+*参考学习《R语言与Bioconductor——生物信息学应用》第五章*，根据自己学习有删改，欢迎分享。本文中有些预备知识或一些方法的原理没有提及，请自行搜索理解或者购买该书学习。
 
 **Bioconductor最初就是设计来分析基因芯片数据的，因此芯片分析整体反映了Biocondutor的设计理念和编程思想。**
 
@@ -681,7 +681,216 @@ topTable函数的使用需要注意几点：
 
 对Affymetrix芯片进行注释采用下载对应平台注释包进行本地注释的方式。下面例子只用两种基因ID来对探针组进行注释。
 
+
+
+```R
+# 加载注释工具包
+library(annotate)
+
+# 获得基因芯片注释包名称
+affydb <- annPkgName(CLLbatch@annotation, type="db")
+affydb
+# 如果没有安装，先安装
+biocLite(affydb)
+#　加载该包
+library(affydb, character.only = TRUE)
+# 根据每个探针组的ID获取对应基因Gene Symbol，并作为新的一列
+dif$symbols <- getSYMBOL(rownames(dif), affydb)
+# 根据探针ID获取对应基因Entrez ID
+dif$EntrezID <- getEG(rownames(dif), affydb)
+# 显示前几行
+head(dif)
+```
+
+```R
+> head(dif)
+              logFC  AveExpr         t      P.Value adj.P.Val         B symbols EntrezID
+39400_at -0.9997850 5.634004 -5.727329 1.482860e-05 0.1034544 2.4458354 TBC1D2B    23102
+1303_at  -1.3430306 4.540225 -5.596813 1.974284e-05 0.1034544 2.1546350  SH3BP2     6452
+33791_at  1.9647962 6.837903  5.400499 3.047498e-05 0.1034544 1.7135583   DLEU1    10301
+36131_at  0.9574214 9.945334  5.367741 3.277762e-05 0.1034544 1.6396223   CLIC1     1192
+37636_at  2.0534093 5.478683  5.120519 5.699454e-05 0.1439112 1.0788313   JADE3     9767
+36122_at  0.8008604 7.146293  4.776721 1.241402e-04 0.2612118 0.2922106    <NA>     <NA>
+```
+
+**注释实质上是一个ID映射过程**，这里是将芯片探侦组的ID映射到基因国际标准名称（Gene symbol）和Entrez ID两种ID上。
+
+Gene symbol是由人类基因命名委员会（The HUGO Gene Nomenclature Committee, HGNC）为每个人类基因提供的唯一命名，一般是大写拉丁字母缩写形式，后面可以加数字，以便于人工阅读。Entrez ID是NCBI的GI（GeneInfo Identifier）。NCBI对于每一条提交的序列，根据其存入NCBI数据时的先后顺序赋给一个整数，这就是GI。这里映射GI的目的是为了将GI映射到基因本体论（GO），然后做GO的富集分析。
+
+
+
 ### 统计分析及可视化
 
+对于差异表达分析，最主要的两种统计分析就是GO的富集分析和KEGG通路的富集分析。它们分别由GOstats包和GeneAnswers包实现。
 
+```R
+# 加载包
+library(GOstats)
+# 提取HG_U95Av2芯片中所有探针组对应的EntrezID，注意保证uniq
+entrezUniverse <- unique(unlist(mget(rownames(eset), hgu95av2ENTREZID)))
+# 提取差异表达基因及其对应的EntrezID
+entrezSelected <- unique(dif[!is.na(dif$EntrezID), "EntrezID"])
+
+# 设置GO富集分析的所有参数
+params <- new("GOHyperGParams", geneIds=entrezSelected, universeGeneIds=entrezUniverse,
+              annotation=affydb, ontology="BP", pvalueCutoff=0.001, conditional=FALSE,
+              testDirection="over")
+# 对所有的GOterm根据params参数做超几何检验
+hgOver <- hyperGTest(params)
+
+# 生成所有GOterm的检验结果报表
+bp <- summary(hgOver)
+
+# 同时生成所有GOterm的检验结果文件，每个GOterm都有指向官方网站的链接，以获得详细信息
+htmlReport(hgOver, file="ALL_go.html")
+
+# 显示结果前几行
+head(bp)
+```
+
+```R
+> head(bp)
+      GOBPID       Pvalue OddsRatio  ExpCount Count Size                                                     Term
+1 GO:0022904 8.956477e-10  16.22041 0.8868343    11   66                     respiratory electron transport chain
+2 GO:0022900 1.059675e-09  15.92875 0.9002712    11   67                                 electron transport chain
+3 GO:0042773 3.220076e-09  17.09865 0.7659024    10   57                 ATP synthesis coupled electron transport
+4 GO:0042775 3.220076e-09  17.09865 0.7659024    10   57   mitochondrial ATP synthesis coupled electron transport
+5 GO:0006123 8.147710e-09  66.54092 0.1746795     6   13 mitochondrial electron transport, cytochrome c to oxygen
+6 GO:0006119 1.917217e-08  13.83664 0.9137081    10   68                                oxidative phosphorylation
+```
+
+
+
+```R
+# 安装并加载所需包
+biocLite("GeneAnswers")
+library(GeneAnswers)
+
+# 选取dif中的三列信息构成新的矩阵，新一列必须是EntrezID
+humanGeneInput <- dif[, c("EntrezID", "logFC", "P.Value")]
+# 获得humanGeneInput中基因的表达值
+humanExpr <- eset[match(rownames(dif), rownames(eset)), ]
+humanExpr <- cbind(humanGeneInput[,"EntrezID"], humanExpr)
+# 去除NA数据
+humanGeneInput <- humanGeneInput[!is.na(humanGeneInput[, 1]),]
+humanExpr <- humanExpr[!is.na(humanExpr[,1]),]
+# KEGG通路的超几何检验
+y <- geneAnswersBuilder(humanGeneInput, "org.Hs.eg.db", categoryType = "KEGG",
+                        testType = "hyperG", pvalueT=0.1, geneExpressionProfile=humanExpr,
+                        verbose = FALSE)
+getEnrichmentInfo(y)[1:6]
+```
+
+```R
+> getEnrichmentInfo(y)[1:6]
+      genes in Category percent in the observed List percent in the genome fold of overrepresents odds ratio      p value
+05012                12                   0.22222222           0.022150281              10.032479  13.794189 1.302401e-09
+05010                13                   0.24074074           0.028454592               8.460523  11.655527 2.022230e-09
+00190                11                   0.20370370           0.022491055               9.057099  12.038055 2.061276e-08
+05016                12                   0.22222222           0.031180780               7.126897   9.430242 6.436589e-08
+04260                 7                   0.12962963           0.013119782               9.880471  12.223404 5.483387e-06
+01100                22                   0.40740741           0.192537059               2.115995   2.920634 2.073075e-04
+04710                 3                   0.05555556           0.003748509              14.820707  17.944272 1.002054e-03
+03040                 6                   0.11111111           0.021639121               5.134733   5.882231 1.006287e-03
+04310                 4                   0.07407407           0.025558017               2.898272   3.106301 4.837838e-02
+00230                 4                   0.07407407           0.027602658               2.683585   2.864304 6.095794e-02
+03050                 2                   0.03703704           0.007497018               4.940236   5.286630 6.149150e-02
+04114                 3                   0.05555556           0.019083319               2.911210   3.079331 8.335034e-02
+05221                 2                   0.03703704           0.009712046               3.813515   4.027972 9.628046e-02
+```
+
+
+
+上面调用GeneAnswers包实现了KEGG通路的注释、统计和可视化的功能。GeneAnswers功能强大，还支持GO、REACTOME和CABIO等多个数据库，可以通过设定参数categoryType分别指定注释类型。
+
+
+
+根据已有的计算，我们接下来可视化分析结果，调用pheatmap包来绘制差异表达谱热图；调用Rgraphviz包会绘制显著富集的GO term的关系图；最后绘制显著富集的KEGG通路的关系图和热图。
+
+```R
+biocLite("pheatmap")
+library(pheatmap)
+# 从基因表达矩阵中，选取差异表达基因对应的数据
+selected <- eset[rownames(dif), ]
+# 将selected矩阵每行的名称由探针组ID转换为对应的基因symbol
+rownames(selected) <- dif$symbols
+# 考虑显示问题，这里只画前20个基因的热图
+pheatmap(selected[1:20,], color = colorRampPalette(c("green", "black", "red"))(100),
+         fontsize_row = 4, scale = "row", border_color = NA)
+```
+
+**热图**
+
+![](images/pheatmap.png)
+
+(截图原因，没有显示完全)
+
+```R
+biocLite("Rgraphviz")
+library(Rgraphviz)
+# 显著富集的GO term的DAG关系图
+ghandle <- goDag(hgOver)
+# 这个图太大，这里只能选一部分数据构建局部图
+subGHandle <- subGraph(snodes=as.character(summary(hgOver)[,1]), graph = ghandle)
+plot(subGHandle)
+```
+
+**显著富集的GO term关系图**
+
+![](images/subgraph_go.png)
+
+
+
+```R
+# 显著富集的KEGG通路的关系图
+yy <- geneAnswersReadable(y, verbose = FALSE)
+geneAnswersConceptNet(yy, colorValueColumn = "logFC", centroidSize = "pvalue",
+                      output = "interactive")
+# 显著富集的KEGG通路的热图
+yyy <- geneAnswersSort(yy, sortBy = "pvalue")
+geneAnswersHeatmap(yyy)
+```
+
+
+
+## 总结
+
+系统地走了一下基因芯片分析的流程，我们可以看到数据的分析主要分为两大块：预处理和分析。我们凭感觉往往侧重于分析，因为它们最靠近我们想要获得的结果。但从内容的介绍来看，我们可以观察到预处理部分富含更多的内容。分析的方法往往在短时间内会固化，近十年主流的分析过程主要的也就是提到的这几个，但是每个人想要处理的数据集是丰富多变的，它往往也决定了我们结果的可靠性。这是我们在分析时非常需要关注的一点。
+
+
+
+最后输出会话信息：
+
+```R
+> sessionInfo()
+R version 3.4.1 (2017-06-30)
+Platform: x86_64-pc-linux-gnu (64-bit)
+Running under: Ubuntu 17.04
+
+Matrix products: default
+BLAS: /home/diviner-wsx/anaconda3/lib/R/lib/libRblas.so
+LAPACK: /home/diviner-wsx/anaconda3/lib/R/lib/libRlapack.so
+
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+ [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8    LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+ [9] LC_ADDRESS=C               LC_TELEPHONE=C             LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+
+attached base packages:
+ [1] grid      stats4    parallel  stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] Rgraphviz_2.20.0     GeneAnswers_2.18.0   RColorBrewer_1.1-2   Heatplus_2.22.0      MASS_7.3-47          RSQLite_2.0         
+ [7] annotate_1.54.0      XML_3.98-1.9         RCurl_1.95-4.8       bitops_1.0-6         igraph_1.1.2         GOstats_2.42.0      
+[13] Category_2.42.1      Matrix_1.2-11        AnnotationDbi_1.38.2 IRanges_2.10.4       S4Vectors_0.14.6     graph_1.54.0        
+[19] limma_3.32.8         affy_1.54.0          Biobase_2.36.2       BiocGenerics_0.22.1 
+
+loaded via a namespace (and not attached):
+ [1] Rcpp_0.12.13           BiocInstaller_1.26.1   compiler_3.4.1         tools_3.4.1            zlibbioc_1.22.0       
+ [6] digest_0.6.12          bit_1.1-12             memoise_1.1.0          preprocessCore_1.38.1  tibble_1.3.4          
+[11] lattice_0.20-35        pkgconfig_2.0.1        rlang_0.1.2            DBI_0.7                downloader_0.4        
+[16] genefilter_1.58.1      bit64_0.9-7            GSEABase_1.38.2        RBGL_1.52.0            survival_2.41-3       
+[21] magrittr_1.5           GO.db_3.4.1            blob_1.1.0             splines_3.4.1          AnnotationForge_1.18.2
+[26] xtable_1.8-2           affyio_1.46.0         
+```
 
