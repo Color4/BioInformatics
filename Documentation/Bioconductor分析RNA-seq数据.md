@@ -1,0 +1,171 @@
+# Bioconductor分析RNA-seq数据
+
+参考学习《R语言与Bioconductor生物信息学应用》第六章
+
+---
+
+使用的学习数据：NCBI SRA (Sequence Read Archive)数据库，数据集编号SRA091277
+
+使用的是菊花转录组样品，分析过程包括原始数据获取、数据清理、质量控制、转录组拼接、转录本定量、标准化和表达差异分析等过程。
+
+| 样品名称  | 样品描述         | RUN编号     | 测序长度  |
+| ----- | ------------ | --------- | ----- |
+| T1    | 处理组（脱水处理3小时） | SRR921340 | 100bp |
+| T2    | 处理组（脱水处理3小时） | SRR921341 | 100bp |
+| T3    | 处理组（脱水处理3小时） | SRR921342 | 100bp |
+| T1-1  | 处理组（脱水处理3小时） | SRR921346 | 51bp  |
+| T2-1  | 处理组（脱水处理3小时） | SRR921344 | 51bp  |
+| T3-1  | 处理组（脱水处理3小时） | SRR921345 | 51bp  |
+| CK1   | 对照组（不做任何处理）  | SRR921321 | 100bp |
+| CK2   | 对照组（不做任何处理）  | SRR921322 | 100bp |
+| CK3   | 对照组（不做任何处理）  | SRR921324 | 100bp |
+| CK1-1 | 对照组（不做任何处理）  | SRR921336 | 51bp  |
+| CK2-1 | 对照组（不做任何处理）  | SRR921337 | 51bp  |
+| CK3-1 | 对照组（不做任何处理）  | SRR921338 | 51bp  |
+
+
+
+## 高通量测序基础知识
+
+（这里只记录书中重要的知识点并加以理解）
+
+基于第二代测序建立起来的基因组测序、RNA-seq和Small RNA-seq等应用，都由**样本收集、文库制备和测序**三个过程组成，不同之处在于样品收集和文库制备。
+
+![rna-seq](images/rna-seq.jpg)
+
+第二代测序仪（Illumina）测的序列，无论来自DNA-seq文库还是RNA-seq文库，从左到右依次分为3个区域：**5'接头（Adapter）区、目标序列区和3'接头区**。当多个样品在一个泳道（Lane）中同时测序时，我们可以使用多样品（Multiplex）技术，具体而言是给每个样品分配一个不重复的条形码（Barcode），其实质是一个6-8位的DNA序列，测序后可以通过这个序列将不同的样品分开。**单端测序**（Single end）指仅从正向测序；**双端测序**（Paired end）指先从正向测序，然后从反向测序。Barcode则根据另一引物“Sb”独立测序得到。
+
+理论上，由于制备的RNA-seq文库插入长度的峰值常常为200或300bp，所以测序应该只得到文库中目标序列5'端开始的部分（这就是常说的read了，以前总搞不懂~）。但是呢，文库中会有少量目标序列不到测序长度（比如测100bp实际目标序列只有几十），那么测序就可能会测到3'端接头序列，这就是所谓的**接头污染**。数据预处理时，如果发现接头序列过多，一般是RNA-seq文库插入长度没有控制好；如果出现大量全长的3'接头，一般是接头过量，导致了大量接头自连（Self ligation）。
+
+实际应用中，估计测序深度使用更多的是达到质量标准的有效数据量，而不是原始数据量。当RNA-seq有效数据比例过低时，无法检测一些低丰度的转录本，要考虑重新测序。
+
+**测序深度**，也叫乘数，指每个碱基被测序的平均次数，是用来衡量测序量的首要参数。**测序覆盖度**，也叫覆盖率，指被测序到的碱基占全基因组大小的比率。假如用Illumina 2000测序仪完成一次人类基因组（3G大小）单端测序，即可得到300G数据（假设全部是有效数据），估计的测序深度即为100倍（300G/3G），常见表示为100X。将所有读段比对到人类基因组，如果发现只有2.7G的碱基至少有1个读段覆盖到，其实际测序深度为111X（300G/2.7G），测序覆盖度为90%（2.7G/3G）。
+
+**不同的测序目的要使用不同的测序策略**。如DNA组装使用较多的是2X100bp或更长的双端测序；RNA-seq使用较多的是100bp或更长的单端链特异性测序；small RNA-seq多用50bp单端测序。
+
+从测序得到的读段组装成目标基因组或者转录组的基因策略是**比对和拼接**，比对是把读段定位到参考基因组或者转录组上，然后再拼接成连续序列；拼接也胶从头组装（*Denovo* assembly），是在没有参考基因组或者转录组前提下，根据读段之间的重叠区，把所有读段拼接起来，直接获得基因组或者转录组（[参考文章](http://www.mamicode.com/info-detail-1901076.html)）。
+
+转录组比对常用的软件有BWA、Bowtie和Tophat；拼接常用的软件是Trinity。
+
+**基因组和转录组组装的不同点**：基因组组装希望尽量获得唯一或较少的组装结果，即**一致性序列**（Consensus sequence）。一致性序列上并不是每个位点都只有一种碱基，它实际上只代表该位点出现频率最高的碱基，存在两种以上碱基的位点叫做**杂合位点**。注意，过分追求一致性会导致**过拼接**，即来自不同基因的相似序列会被误拼接到一起。基因组和转录组组装可以用一个非常重要的指标**N50**来评价，即将所有组装后的序列按照长度从大到小排列，累加值接近所有序列长度总和一半时的那个位置对应的序列长度。N50越大，组装的结果越好，类似的有N90。
+
+
+
+### 测序的质量分数
+
+#### Phred分数
+
+测序中常用错误概率$P_e$（Error probability）来表示每个核苷酸测量的准确性，还可以赋予一个数值来更简便地表示这个意思，叫做测序质量分数（Quality score）。因为这个分数最开始通过Phred软件从测序仪生成的色谱图中得到的，所以也叫做Phred分数（$Q_{Phred}$）。Phred分数的取值范围是0到93，可以表示很宽的误差范围，即从1（完全错误）到非常低的错误率$10^{-93}$。Phred分数是最基本的质量分数，其他的质量计分标准都来自Phred分数。
+$$
+Q_{Phred} = -10\times log_{10}P_e
+$$
+
+| $Q_{Phred}$ | $P_{e}$ | Base call accuracy |
+| ----------- | ------- | ------------------ |
+| 0           | 1       | 0                  |
+| 10          | 0.1     | 0.9                |
+| 20          | 0.01    | 0.99               |
+| 30          | 0.001   | 0.999              |
+| 40          | 0.0001  | 0.9999             |
+| 50          | 0.00001 | 0.99999            |
+
+#### Sanger分数（Phred+33）
+
+Phred分数包括2位数字，还需要用空格分隔，不方便阅读，又要占用大量存储空间，实际上文件中不采用它。为了在文件中方便地表示质量，常常将Phred分数加上33（从33到126变化，ASCII码正好覆盖了可打印区），并用其ASCII码值对应的字符表示，这就是Sanger分数。Sanger分数常用于FASTQ格式的文件。
+
+#### Illumina/Solexa分数（Phred+64）
+
+分数之间的转换公式：
+$$
+Q_{Solexa} = -10 \times log_{10}(\frac{P_e}{1-P_e}) \\
+
+Q_{Solexa} = 10 \times log_{10}(10^{\frac{Q_{Phred}}{10}}- 1) \\
+
+Q_{Phred} = 10 \times log_{10}(10^{\frac{Q_{Solexa}}{10}}- 1) \\
+$$
+Solexa分数的取值范围是-5到62，它在FASTQ文件中需要加上64并转换为相应的ASCII码值（59到126）对应的字符来表示质量。2006年，Illumina公司收购Solexa公司后继续沿用其标准。显著Illmina采用新的标准，采用了Phred分数（范围0-62）加64的质量分数。
+
+Sanger分数（Phred+33）和Illumina分数（Phred+64）是当前应用最为普遍的质量分数系统。
+
+以Phred=20（即常见的Q20标准）为例，其Sanger分数为53，对应数字5；其Illumina分数为84，对应字母T。
+
+Bioconductor中的ShortRead包提供了SolexaQuality和PhredQuality函数分别生成Illumina分数和Sanger分数。
+
+```R
+source("http://Bioconductor.org/biocLite.R")
+biocLite("ShortRead")
+library(ShortRead)
+Q=20
+PhredQuality(as.integer(Q))
+SolexaQuality(as.integer(Q))
+```
+
+```R
+> Q=20
+> PhredQuality(as.integer(Q))
+  A PhredQuality instance of length 1
+    width seq
+[1]     1 5
+> SolexaQuality(as.integer(Q))
+  A SolexaQuality instance of length 1
+    width seq
+[1]     1 T
+```
+
+
+
+### 高通量测序文件格式
+
+#### FASTQ格式
+
+FASTQ格式是序列文件中常见的一种，它一般包括四部分：第一部分是由“@”开始，后面跟着序列的描述信息（对于高通量数据，这里是读段的名称），这点跟FASTA格式是一样的（起头的符号不一样）；第二部分是DNA序列；第三部分是由“+”号开始，后面或者是读段的名称，或者为空；第四部分是DNA序列上每个碱基的质量分数，每个质量分数对应一个DNA碱基。
+
+Bioconductor中的ShortRead包提供了quality函数可以自动识别FASTQ文件中的质量分数的种类。
+
+我随便写了一个fastq的demo文件，内容
+
+```
+@HWUSI-EAS100R:123:COEPYACXX:6:73:941:1973#0/1
+GATTTGGGGTTCAAAGCAGTATCGATCAAAATAGTAAAATCCATTTGTTCAACTCACAGTTT
++ HWUSI-EAS100R:123:***********************
+!"************************************************************
+```
+
+进行一些操作：
+
+```R
+library(ShortRead)
+# 读入FASTQ文件
+reads <- readFastq("./demo.fastq")
+# 得到质量分数的类型
+score_sys <- data.class(quality(reads))
+# 得到质量分数
+qual <- quality(quality(reads)) # 这里好像一个quality函数就够了，还是尊重原文吧
+# 质量分数转为16进制表示
+myqual_mat <- charToRaw(as.character(unlist(qual)))
+
+# 如果是Phred+64分数表示系统
+if(score_sys=="SFastqQuality"){
+  # 显示分数系统类型
+  cat("The quality score system is Phred+64", "\n")
+  # 输出原始分数值
+  strtoi(myqual_mat, 16L)-64
+}
+# 如果是Phred+33分数表示系统
+if(score_sys=="FastqQuality"){
+  # 显示分数系统类型
+  cat("The quality score system is Phred+33", "\n")
+  # 输出原始分数值
+  strtoi(myqual_mat, 16L)-33
+}
+
+```
+
+```R
+The quality score system is Phred+33 
+ [1] 0 1 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9
+```
+
+#### NCBI中的FASTQ与SRA格式
+
+NCBI的Sequence Read Archive （SRA）数据库，接受FASTQ格式的高通量数据上传，并将分数标准从开始的Illumina分数转换成了Sanger分数。
