@@ -231,3 +231,51 @@ Illumine 2000测序仪每次运行（单端测序）理论上可以产生大约3
 
 RNA-seq数据预处理与基因芯片预处理的目的一致，都是要得到基因表达数据，这里确切说是转录本。但它们的实现细节和方法则有很大不同，下面逐一介绍。
 
+### 质量控制
+
+数据质量分析报告可以调用ShortRead包中的`qa`函数得到，另一个常用的工具是FastQC。
+
+下面是一个用`qa`函数生成质量分析报告的实例，示例数据来自SRA数据库的RNA-seq数据SRR921344。
+
+```R
+library(BiocInstaller)
+# 安装包
+biocLite("SRAdb")
+biocLite("R.utils")
+# 导入包
+library(ShortRead)
+library(SRAdb)
+library(R.utils)
+# download data
+db_dir <- "~/Projects/coGECP-pro/db/"
+sra_dbname <- paste0(db_dir, 'SRAmetadb.sqlite')	
+sra_con <- dbConnect( dbDriver("SQLite"), sra_dbname )
+getFASTQfile("SRR921344", sra_con, destDir = "~/Projects/coGECP-pro/fast-format/", srcType = 'ftp', ascpCMD = NULL )
+dbDisconnect( sra_con )
+
+# 解压后改名
+gunzip("../fast-format/SRR921344.fastq.gz", destname="../fast-format/T2-1.fastq")
+
+# 需要分析的数据文件名称
+fastqfile="T2-1.fastq"
+# 得到质量分析的记过
+qa <- qa(dirPath = "../fast-format/", pattern=fastqfile, type="fastq")
+
+# 输出html格式的分析报告
+report(qa, dest="qcReport", type="html")
+```
+
+执行完毕后会得到名为`qcReport`的结果目录，主要包括质量分析的报告文件“index.html”和文件夹“image”，image文件夹下包括所有的统计信息图示。
+
+比较重要的图示信息有**前20个高频出现的读段统计信息**，这对于确定接头或者其他污染很重要。FastQC软件带有一个文件包括了常用的Illumina接头序列，会把高频出现的序列比对到这些接头序列，并给予提示；Biocondutor则需要编程比对到NCBI UniVec数据库（http://www.ncbi.nlm.nih.gov/tools/vecscreen/univec）来确定接头序列。
+
+接下来是四种碱基的逐点质量图，该图横坐标是测序的循环数，对应测序时5'端开始的每个位点，纵坐标是所有该位点测量的碱基的质量分数平均数。
+
+质量控制中**最重要**的一个图是逐点质量图，它与四种碱基逐点质量图的区别在于不区分碱基种类，给出每个位点的测序质量分数的平均数、中位数和上下四分位线。
+
+通过质量控制，可以确定当前样品的数据是否应该保留进入下一步分析或者丢弃。对于通过质量控制的数据，还要进行**读段处理**，清理后的数据才是实际分析中使用的数据。
+
+### 读段清理
+
+读段清理主要去掉读段中多个“N”碱基，读段两端的低质量区域（质量分数少于Q20），读段3'端可能混入的接头序列，还有可能污染进来的rRNA和病毒序列。
+
