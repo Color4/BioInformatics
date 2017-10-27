@@ -295,5 +295,78 @@ report(qa, dest="qcReport", type="html")
 
 下面例子使用`summarizeOverlaps`函数从Bam文件中获取原始计数，并输出为edgeR包和DESeq包中的数据对象。
 
+```R
+require(BiocInstaller)
+# biocLite("TxDb.Dmelanogaster.UCSC.dm3.ensGene")
+# biocLite("DESeq")
+require(Rsamtools)
+require(DESeq)
+require(edgeR)
+require(pasillaBamSubset)
+library(GenomicAlignments)
 
+#此处数据已经不能用了，所以从其他包里弄了个bam格式文件试试
+# bamfile <- system.file("extdata", "ex1.bam", package="Rsamtools")
+# bf1 <- BamFileList(bamfile, index=character())
+# features <- GRanges(seqnames = c())
+
+# from GenomicRanges::GenomicRangesHOWTOs	
+reads <- c(untrt1=untreated1_chr4(),
+             untrt3=untreated3_chr4())
+# single-end reads
+# paired-end reads
+
+library(TxDb.Dmelanogaster.UCSC.dm3.ensGene)
+exbygene <- exonsBy(TxDb.Dmelanogaster.UCSC.dm3.ensGene, "gene")
+se <- summarizeOverlaps(exbygene, reads, mode="IntersectionNotEmpty")
+
+# back 
+deseq <- newCountDataSet(assays(se)$counts, rownames(colData(se)))
+edger <- DGEList(assays(se)$counts, group=rownames(colData(se)))
+
+```
+
+类似基因芯片，RNA-seq定量后的数据需要标准化，使得所有的样品具有可比性。**最常见的一个指标是RPKM（Reads Per Kilo base per Million reads）**，即每百万读段中来自某一个基因每千碱基长度的读段数目。具体计算时使用比对到某个基因的读段个数除以比对到基因组或者转录组的所有读段个数（以百万为单位），再除以基因或转录本的长度（以KB为单位）。基因表达差异分析的常用软件edgeR软件和DESeq都自带了数据标准化功能，可以直接处理用原始计数表示的基因表达矩阵，RPKM表示的基因表达矩阵的使用主要是为了方便用户直接观察数据。
+
+## RNA-seq数据分析
+
+RNA-seq数据与表达谱芯片数据在基因表达差异的显著性分析流程基本相同，不同的地方只在确定差异表达基因方面。
+
+### 基因表达差异的显著性分析
+
+表达差异分析只对比不同样本之间的同一个转录本，所以不需要考虑转录本长度，只考虑总读段数。一个**最简单思想**就是，样本测序得到的总读段数（实际上是可以比对到转录组的总读段数）越多，则每个基因分配到的读段越多。因此**最简单的标准化因子**就是总读段数，用总读段数作标准化的前提是大部分基因的表达是非显著变化的，这与基因芯片中的基本假设相同。**但是**实际工作中发现很多情况下总读段数主要是一小部分大量表达的基因贡献的。Bullard等（2010）在比较了几种标准化方法的基础上发现在每个泳道内使用非零计数分布的上四分位数（Q75%）作为标准化因子是一种更稳健的选择，总体表现是所研究方法中最优的。
+
+Bioconductor的edgeR包和DESeq包分别提供了上四分位数和中位数来作为标准化因子，就是出于这个思想。
+
+edgeR提供了三种标准化算法，分别是M值加权截断均值法（Weighted trimmed mean of M-values, TMM），相对对数表达值法（Relative log expression, RLE）和上四分位法（Upperquartile），其中TMM是默认设定。这些标准化方法大同小异，其基本思想就是去除表达值较大的少数基因的影响，而保留大部分没有显著变化的基因。
+
+**由于基因芯片检测杂交的荧光强度信号是连续值，往往假设它符合正态分布；而RNA-seq测量的是离散值，最简单的假设就是二项分布。**由于RNA-seq读段数量非常多，而且一条读段映射到一个给定基因的概率足够小，在**实际计算中，二项分布常用它的极限形式泊松分布**来替代。泊松分布的一个性质是其方差等于均值，但是当有生物学重复时，RNA-seq数据会表现出比泊松分布期望的更高的变异性，对相当多的基因来说方差可能超过均值，这种现象叫**过离散**。对过离散数据，基于泊松分布假设的分析容易低估不同生物学重复带来的取样误差而得到过多的假阳性的差异表达基因。为了允许额外的变异，一个自然的想法就是给均值加上一个**散度参数**，以使方差可以大于均值。于是作为泊松分布的推广，又引入了负二项分布（NB）来作为基本假设，**负二项分布是当前基因表达的显著性分析中最常用假设**。
+
+现在从百度百科摘取二项分布与负二项分布的公式，以加强理解。
+
+**二项分布**，即重复n次的贝努利试验，用$\xi$表示随机试验的结果。如果事件发生的概率是p,不发生的概率是1-p，那么N次独立重复试验中发生k次的概率是：
+$$
+P(\xi=k)=C_n^k * p^k *(1-p)^{n-k}
+$$
+期望：$E_\xi = np$
+
+方差： $D_\xi = npq$
+
+而负二项分布的公式（概率密度）为：
+$$
+f(k; r, p)=P_r(x=k) = C_{k+r+1}^{r-1}*p^k*(1-p)^{n-k}
+$$
+它表示，已知一个事件在贝努利试验中每次的出现概率是p，在一连串贝努利试验中，一件事刚好在第r+k次试验出现第r次的概率。
+
+写作：X ~ NB(r; p)
+
+基于负二项分布的edgeR、DESeq包是当前最主要的分析程序。在edgeR中，对于任一样品i中的任一个基因g，假设它的分布符合负二项分布。
+$$
+Y_{gi} = NB(M_ip_{gj}, \phi_g)
+$$
+其中$M_i$是样品i中的读段总数（实际中是可以比对上的读段总数）；$\phi_g$就是基因g的散度；$p_{gj}$是基因g在某个实验条件j下或者分组j中的相对丰度。第g个基因在某个实验条件j下或分组j中，NB分布的均值为$\mu_{gj}=p_gjM_i$，方差为$\mu_{gj}(1+\mu_{gj}\phi_g)$，对于表达差异分析，需要估计的是散度$\phi_g$，当它趋于0时，负二项分布退化为泊松分布，这时方差退化为第一项$\mu_{gj}$，一般认为来自技术重复，方差第2项$\mu^2_{gj}\phi_g$来自生物学重复。
+
+RNA-seq数据分析往往只有很小的样本量，为每个基因估计一个散度非常困难。比较好的策略是允许不同的基因有不同的个体散度，而这些个体散度的估计可以用一些合适的统计方法借助基因间的信息来改进。相对于edgeR，DESeq默认设置采取了最保守的估计策略，即选取每个基因的经验散度和拟合得到的散度趋势线取值中最大的作为最终的散度估计值，因此DESeq往往选出更少的差异表达基因（为什么呢？）。DESeq由于可以利用同一个样本基因间的数据估计散度，而不一定需要重复样本来计算，因此可以直接用于无重复实验的表达差异分析。
+
+**后面一些实例代码不好重复，不再描述。**
 
