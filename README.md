@@ -30,5 +30,8 @@ Archive of bioinformatics learning material and website summary
 - [解螺旋的矿工](http://www.huangshujia.me/) - 个人博客，博主在BGI服役多年，有态度、有思想、有好文，参与或主导了多个人类基因组相关的项目，发有多篇Nature级别的文章。技能包括组装，变异检测，全基因组重测序，外显子，甲基化等，特别关注基因组学在医疗健康领域的应用，希望做生命科学领域能懂有用的科学。[点击](http://www.huangshujia.me/about/)查看个人介绍。
 - [R语言忍者秘籍](https://bookdown.org/yihui/r-ninja/) - 值得一读的R语言书籍，作者是谢益辉
 - [bookdown](https://bookdown.org/) - 用Rmarkdown写书或技术稿。A guide to authoring books with R Markdown, including how to generate figures and tables, and insert cross-references, citations, HTML widgets, and Shiny apps in R Markdown. The book can be exported to HTML, PDF, and e-books (e.g. EPUB). The book style is customizable. 同时，这个网站包含一系列开源的技术书籍（可能正创作中）。
-- ​
+- 生信媛 - 微信公众号， 点击查看[文章目录](https://vip.biotrainee.com/d/83--)
+- 生信宝典 - 微信公众号
+- biobabble - 微信公众号，Y叔创建
+
 
